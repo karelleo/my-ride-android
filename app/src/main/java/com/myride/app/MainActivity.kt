@@ -4,10 +4,13 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Bitmap
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -68,7 +71,16 @@ class MainActivity : Activity() {
         currentTab = "Beranda"; base("Halo! 👋", "Semua nota perjalanan dan pesanan dalam satu tempat")
         val scroll = ScrollView(this); val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(16,14,16,18) }
         val search = EditText(this).apply { hint = "Cari nota, lokasi, atau transaksi"; setSingleLine(true); textSize = 14f; setPadding(14,4,14,4); setBackgroundColor(Color.WHITE) }
-        body.addView(search, LinearLayout.LayoutParams(-1,52)); addGap(body,14)
+        body.addView(search, LinearLayout.LayoutParams(-1,52)); addGap(body,10)
+        val uploadHome = Button(this).apply {
+            text = "＋  Upload nota PDF / foto"
+            isAllCaps = false
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(green)
+            setOnClickListener { showMore() }
+        }
+        body.addView(uploadHome, LinearLayout.LayoutParams(-1,50)); addGap(body,14)
         body.addView(label("Layanan",18f,ink,true)); addGap(body,8)
         val services = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         services.addView(serviceTile("🚗","GoCar"), LinearLayout.LayoutParams(0,104,1f)); services.addView(serviceTile("🍜","GoFood"), LinearLayout.LayoutParams(0,104,1f)); services.addView(serviceTile("📦","GoSend"), LinearLayout.LayoutParams(0,104,1f)); services.addView(serviceTile("⋯","Lainnya"), LinearLayout.LayoutParams(0,104,1f))
@@ -110,10 +122,21 @@ class MainActivity : Activity() {
         val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf("Semua","GoCar","GoFood","GoSend").forEach { c -> val b = Button(this).apply { text=c; textSize=11f; isAllCaps=false; setOnClickListener { showActivity(c) } }; chips.addView(b) }
         body.addView(chips)
+        addGap(body,8)
+        val uploadActivity = Button(this).apply {
+            text = "＋  Upload nota PDF / foto"
+            isAllCaps = false
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(green)
+            setOnClickListener { showMore() }
+        }
+        body.addView(uploadActivity, LinearLayout.LayoutParams(-1,48))
+        addGap(body,8)
         val search = EditText(this).apply { hint="Cari transaksi atau lokasi"; setSingleLine(true) }
         body.addView(search)
         val list = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
-        fun refresh(q:String="") { list.removeAllViews(); val rows=db.all().filter { (filter=="Semua" || it.service.equals(filter,true)) && listOf(it.service,it.date,it.origin,it.destination,it.driver).joinToString(" ").contains(q,true) }; if(rows.isEmpty()) list.addView(emptyCard("Nota tidak ditemukan","Upload nota melalui menu titik tiga.")) else rows.forEach { list.addView(receiptCard(it){showDetail(it.id)}); addGap(list,8) } }
+        fun refresh(q:String="") { list.removeAllViews(); val rows=db.all().filter { (filter=="Semua" || it.service.equals(filter,true)) && listOf(it.service,it.date,it.origin,it.destination,it.driver).joinToString(" ").contains(q,true) }; if(rows.isEmpty()) list.addView(emptyCard("Nota tidak ditemukan","Tekan Upload nota untuk memilih PDF atau foto bukti transaksi.")) else rows.forEach { list.addView(receiptCard(it){showDetail(it.id)}); addGap(list,8) } }
         refresh(); search.addTextChangedListener(SimpleWatcher { refresh(it) })
         val sc=ScrollView(this); sc.addView(list); body.addView(sc,LinearLayout.LayoutParams(-1,0,1f)); root.addView(body,LinearLayout.LayoutParams(-1,0,1f)); root.addView(bottomNav())
     }
@@ -147,8 +170,10 @@ class MainActivity : Activity() {
     }
 
     private fun showMore() {
-        val options=arrayOf("Upload foto / screenshot nota","Upload PDF nota","Batal")
-        AlertDialog.Builder(this).setTitle("Menu lainnya").setItems(options) { _, which -> when(which) { 0 -> pickFile("image/*"); 1 -> pickFile("application/pdf") } }.show()
+        val options=arrayOf("Upload PDF nota","Upload foto / screenshot nota","Batal")
+        AlertDialog.Builder(this).setTitle("Upload nota").setItems(options) { _, which ->
+            when(which) { 0 -> pickFile("application/pdf"); 1 -> pickFile("image/*") }
+        }.show()
     }
 
     private fun pickFile(type: String) {
@@ -157,19 +182,146 @@ class MainActivity : Activity() {
     }
 
     @Deprecated("Legacy activity result used to keep compatibility with the simple Activity implementation")
-    override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) { super.onActivityResult(requestCode,resultCode,data); if(requestCode==1002 && resultCode==RESULT_OK) { val uri=data?.data; val receipt=pendingPdf; if(uri!=null && receipt!=null) writePdf(uri,receipt); pendingPdf=null; return }; if(requestCode==1001 && resultCode==RESULT_OK) { val uri=data?.data ?: return; try { contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_:Exception) {}; selectedAttachment=uri.toString(); if(contentResolver.getType(uri)?.startsWith("image/")==true) { try { val image=InputImage.fromFilePath(this,uri); TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS).process(image).addOnSuccessListener { showImportForm(uri,it.text) }.addOnFailureListener { showImportForm(uri,"") } } catch (_:Exception) { showImportForm(uri,"") } } else showImportForm(uri,"") } }
+    override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
+        super.onActivityResult(requestCode,resultCode,data)
+        if(requestCode==1002 && resultCode==RESULT_OK) {
+            val uri=data?.data
+            val receipt=pendingPdf
+            if(uri!=null && receipt!=null) writePdf(uri,receipt)
+            pendingPdf=null
+            return
+        }
+        if(requestCode==1001 && resultCode==RESULT_OK) {
+            val uri=data?.data ?: return
+            try { contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_:Exception) {}
+            selectedAttachment=uri.toString()
+            val mime=contentResolver.getType(uri) ?: ""
+            if(mime.equals("application/pdf",true) || mime.endsWith("/pdf",true)) {
+                readFirstPdfPage(uri)
+            } else {
+                try {
+                    val image=InputImage.fromFilePath(this,uri)
+                    TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS).process(image)
+                        .addOnSuccessListener { showImportForm(uri,it.text) }
+                        .addOnFailureListener { showImportForm(uri,"") }
+                } catch (_:Exception) { showImportForm(uri,"") }
+            }
+        }
+    }
+
+    // PDF import deliberately reads page 1 only; later invoice pages are ignored.
+    private fun readFirstPdfPage(uri: Uri) {
+        try {
+            val descriptor = contentResolver.openFileDescriptor(uri, "r")
+            if (descriptor == null) {
+                showImportForm(uri, "")
+                return
+            }
+            val renderer = PdfRenderer(descriptor)
+            if (renderer.pageCount < 1) {
+                renderer.close()
+                descriptor.close()
+                showImportForm(uri, "")
+                return
+            }
+            val page = renderer.openPage(0)
+            val bitmap = Bitmap.createBitmap(
+                (page.width * 2).coerceAtLeast(1),
+                (page.height * 2).coerceAtLeast(1),
+                Bitmap.Config.ARGB_8888
+            )
+            bitmap.eraseColor(Color.WHITE)
+            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            page.close()
+            renderer.close()
+            descriptor.close()
+
+            val image = InputImage.fromBitmap(bitmap, 0)
+            TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS).process(image)
+                .addOnSuccessListener {
+                    bitmap.recycle()
+                    showImportForm(uri, it.text)
+                }
+                .addOnFailureListener {
+                    bitmap.recycle()
+                    showImportForm(uri, "")
+                }
+        } catch (e: Exception) {
+            Toast.makeText(this, "PDF tidak bisa dibaca: ${e.message}", Toast.LENGTH_LONG).show()
+            showImportForm(uri, "")
+        }
+    }
 
     private fun showImportForm(uri: Uri, ocr: String) {
         val box=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(20,8,20,0) }
-        val service=EditText(this).apply { hint="Layanan (GoCar / GoFood)"; setText(if(ocr.contains("food",true)) "GoFood" else "GoCar") }
-        val date=EditText(this).apply { hint="Tanggal transaksi"; setText(Regex("\\d{1,2}[-/ ](?:Jan|Feb|Mar|Apr|Mei|Jun|Jul|Agu|Sep|Okt|Nov|Des|\\d{1,2})[-/ ]\\d{2,4}",RegexOption.IGNORE_CASE).find(ocr)?.value ?: "") }
-        val amount=EditText(this).apply { hint="Nominal (angka saja)"; inputType=2; val m=Regex("(?:Rp\\s*)[0-9.]{3,}",RegexOption.IGNORE_CASE).find(ocr)?.value?.filter { it.isDigit() }; if(!m.isNullOrBlank()) setText(m) }
+        val serviceName = when {
+            ocr.contains("GoCar Comfort",true) -> "GoCar Comfort"
+            ocr.contains("GoCar",true) -> "GoCar"
+            ocr.contains("GoRide",true) -> "GoRide"
+            ocr.contains("GoFood",true) -> "GoFood"
+            ocr.contains("GoSend",true) -> "GoSend"
+            else -> "Gojek"
+        }
+        val dateMatch = Regex(
+            "(?i)(?:Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu)?[,]?\\s*(\\d{1,2}\\s+(?:Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember)\\s+\\d{4})"
+        ).find(ocr)?.groupValues?.getOrNull(1)
+        val totalMatch = Regex(
+            "(?is)Total\\s+(?:dibayar|pembayaran)\\s*.{0,90}?Rp\\s*([0-9.]+)"
+        ).find(ocr)?.groupValues?.getOrNull(1)
+            ?: Regex("(?i)Total dibayar\\s*Rp\\s*([0-9.]+)").find(ocr)?.groupValues?.getOrNull(1)
+        val orderNo = Regex("(?i)ID pesanan\\s*:\\s*([A-Z0-9-]+)").find(ocr)?.groupValues?.getOrNull(1).orEmpty()
+
+        val service=EditText(this).apply { hint="Layanan"; setText(serviceName) }
+        val date=EditText(this).apply { hint="Tanggal transaksi"; setText(dateMatch ?: "") }
+        val amount=EditText(this).apply {
+            hint="Nominal total dibayar (angka saja)"
+            inputType=android.text.InputType.TYPE_CLASS_NUMBER
+            val digits = totalMatch?.filter { it.isDigit() }
+            if (!digits.isNullOrBlank()) setText(digits)
+        }
         val origin=EditText(this).apply { hint="Lokasi penjemputan / asal" }
         val dest=EditText(this).apply { hint="Lokasi tujuan" }
         val driver=EditText(this).apply { hint="Nama driver / merchant" }
         val plate=EditText(this).apply { hint="Nomor kendaraan (opsional)" }
-        listOf(service,date,amount,origin,dest,driver,plate).forEach { box.addView(it); addGap(box,3) }
-        AlertDialog.Builder(this).setTitle("Simpan nota").setMessage(if(ocr.isNotBlank()) "Teks berhasil dibaca. Periksa dan lengkapi data berikut." else "Isi informasi nota. File asli akan tetap ditautkan.").setView(box).setNegativeButton("Batal",null).setPositiveButton("Simpan") { _,_ -> val amt=amount.text.toString().filter { it.isDigit() }.toLongOrNull() ?: 0L; db.add(service.text.toString().ifBlank{"GoCar"},date.text.toString(),amt,origin.text.toString(),dest.text.toString(),driver.text.toString(),plate.text.toString(),"",uri.toString()); showActivity() }.show()
+        val order=EditText(this).apply { hint="ID pesanan"; setText(orderNo) }
+
+        // Use only OCR from the first page. Extracted fields are editable before saving.
+        val lines = ocr.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val platePattern = Regex("\\b[A-Z]{1,2}\\s?\\d{1,4}\\s?[A-Z]{1,3}\\b")
+        val plateIndex = lines.indexOfFirst { platePattern.containsMatchIn(it.uppercase()) }
+        if (plateIndex >= 0) {
+            val plateText = platePattern.find(lines[plateIndex].uppercase())?.value
+            if (!plateText.isNullOrBlank()) plate.setText(plateText)
+            if (plateIndex > 0) driver.setText(lines[plateIndex-1].take(60))
+        }
+        val pickupIndex = lines.indexOfFirst { it.contains("Dijemput",true) && it.contains("dari",true) }
+        if (pickupIndex >= 0) origin.setText(lines.drop(pickupIndex).take(3).joinToString(" ").substringAfter("dari", "").take(100).trim())
+        val destinationIndex = lines.indexOfFirst { it.contains("Sampai",true) && it.contains("di",true) }
+        if (destinationIndex >= 0) dest.setText(lines.drop(destinationIndex).take(3).joinToString(" ").substringAfter("di", "").take(100).trim())
+
+        listOf(service,date,amount,origin,dest,driver,plate,order).forEach { box.addView(it); addGap(box,3) }
+        AlertDialog.Builder(this)
+            .setTitle("Periksa nota sebelum disimpan")
+            .setMessage(if(ocr.isNotBlank()) "PDF/foto berhasil dibaca. Untuk PDF hanya halaman pertama yang diproses. Periksa hasil ekstraksi sebelum menyimpan." else "Teks belum terbaca otomatis. Isi data yang tersedia; file asli tetap dilampirkan.")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setNegativeButton("Batal",null)
+            .setPositiveButton("Simpan ke Aktivitas") { _,_ ->
+                val amt=amount.text.toString().filter { it.isDigit() }.toLongOrNull() ?: 0L
+                val note = if(order.text.isNotBlank()) "ID pesanan: ${order.text}" else ""
+                db.add(
+                    service.text.toString().ifBlank{"Gojek"},
+                    date.text.toString(),
+                    amt,
+                    origin.text.toString(),
+                    dest.text.toString(),
+                    driver.text.toString(),
+                    plate.text.toString(),
+                    note,
+                    uri.toString()
+                )
+                Toast.makeText(this,"Nota berhasil ditambahkan ke Aktivitas",Toast.LENGTH_LONG).show()
+                showActivity()
+            }.show()
     }
 
     private fun savePdf(r:Receipt) {
