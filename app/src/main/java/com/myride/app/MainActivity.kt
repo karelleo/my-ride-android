@@ -67,7 +67,7 @@ class MainActivity : Activity() {
     private fun showHome() {
         currentTab = "Beranda"; base("Halo! 👋", "Semua nota perjalanan dan pesanan dalam satu tempat")
         val scroll = ScrollView(this); val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(16,14,16,18) }
-        val search = EditText(this).apply { hint = "Cari nota, lokasi, atau transaksi"; singleLine = true; textSize = 14f; setPadding(14,4,14,4); setBackgroundColor(Color.WHITE) }
+        val search = EditText(this).apply { hint = "Cari nota, lokasi, atau transaksi"; setSingleLine(true); textSize = 14f; setPadding(14,4,14,4); setBackgroundColor(Color.WHITE) }
         body.addView(search, LinearLayout.LayoutParams(-1,52)); addGap(body,14)
         body.addView(label("Layanan",18f,ink,true)); addGap(body,8)
         val services = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -110,7 +110,7 @@ class MainActivity : Activity() {
         val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf("Semua","GoCar","GoFood","GoSend").forEach { c -> val b = Button(this).apply { text=c; textSize=11f; isAllCaps=false; setOnClickListener { showActivity(c) } }; chips.addView(b) }
         body.addView(chips)
-        val search = EditText(this).apply { hint="Cari transaksi atau lokasi"; singleLine=true }
+        val search = EditText(this).apply { hint="Cari transaksi atau lokasi"; setSingleLine(true) }
         body.addView(search)
         val list = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
         fun refresh(q:String="") { list.removeAllViews(); val rows=db.all().filter { (filter=="Semua" || it.service.equals(filter,true)) && listOf(it.service,it.date,it.origin,it.destination,it.driver).joinToString(" ").contains(q,true) }; if(rows.isEmpty()) list.addView(emptyCard("Nota tidak ditemukan","Upload nota melalui menu titik tiga.")) else rows.forEach { list.addView(receiptCard(it){showDetail(it.id)}); addGap(list,8) } }
