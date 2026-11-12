@@ -1,0 +1,12 @@
+MY RIDE - BUILD APK WINDOWS
+
+1. Install Android Studio.
+2. Extract MyRideNative.zip.
+3. Android Studio > Open > pilih folder MyRideNative.
+4. Tunggu Gradle Sync. Jika diminta, install Android SDK Platform 35 dan Android SDK Build-Tools.
+5. Pilih menu Build > Build Bundle(s) / APK(s) > Build APK(s).
+6. File APK ada di:
+   app\build\outputs\apk\debug\app-debug.apk
+7. Kirim file app-debug.apk ke POCO F4 GT, buka file tersebut, lalu izinkan instalasi aplikasi dari sumber tersebut.
+
+Jika ingin APK release yang ditandatangani, gunakan Build > Generate Signed Bundle / APK.
